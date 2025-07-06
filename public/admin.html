@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Painel Administrativo do Sistema de Contas">
+  <title>Painel ADMIN - Sistema de Contas</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div class="admin-panel">
+    <header>
+      <div class="header-content">
+        <h1><i class="fas fa-user-shield"></i> Painel Administrativo</h1>
+        <div class="admin-actions">
+          <button class="primary-btn" onclick="createNewCongregation()">
+            <i class="fas fa-plus-circle"></i> Nova Congregação
+          </button>
+          <button class="logout-btn" onclick="logout()">
+            <i class="fas fa-sign-out-alt"></i> Sair
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <div id="adminWelcome" class="welcome-message"></div>
+
+    <section class="dashboard">
+      <div class="card">
+        <h2><i class="fas fa-chart-pie"></i> Visão Geral dos Saldos</h2>
+        <div class="balance-summary">
+          <div class="summary-card total-balance highlight">
+            <h3><i class="fas fa-wallet"></i> Saldo Total</h3>
+            <div id="totalBalance" class="balance-amount">R$ 0,00</div>
+          </div>
+          
+          <div class="summary-card type-balances">
+            <h3><i class="fas fa-filter"></i> Por Tipo</h3>
+            <div id="dizimoBalance" class="balance-item">
+              <i class="fas fa-hand-holding-usd"></i> Dízimos: R$ 0,00
+            </div>
+            <div id="ofertaBalance" class="balance-item">
+              <i class="fas fa-gift"></i> Ofertas: R$ 0,00
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><i class="fas fa-coins"></i> Saldos por Congregação</h2>
+        <div id="branchesList" class="branches-grid">
+          <!-- Congregações serão carregadas aqui -->
+        </div>
+        
+        <div id="selectedBranchTitle" style="display: none; margin-top: 20px;">
+          <div class="branch-header">
+            <div class="branch-title">
+              <i class="fas fa-church"></i>
+              <h3>Nome da Congregação</h3>
+            </div>
+            <div class="branch-actions">
+              <div class="action-group">
+                <span class="action-label">Ações Financeiras:</span>
+                <button class="action-btn reset-offerings-btn" onclick="resetOfferings()">
+                  <i class="fas fa-hand-holding-usd"></i> Zerar Dízimos/Ofertas
+                </button>
+                <button class="action-btn reset-all-btn" onclick="resetAllGroups()">
+                  <i class="fas fa-coins"></i> Zerar Todos os Grupos
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="table-container" style="margin-top: 20px;">
+          <table class="styled-table">
+            <thead>
+              <tr>
+                <th><i class="fas fa-users"></i> Grupo</th>
+                <th><i class="fas fa-coins"></i> Saldo</th>
+              </tr>
+            </thead>
+            <tbody id="groupBalancesTable">
+              <!-- Grupos da congregação selecionada serão carregados aqui -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2><i class="fas fa-church"></i> Congregações Cadastradas</h2>
+        <div class="search-bar">
+          <i class="fas fa-search"></i>
+          <input type="text" id="searchCongregation" placeholder="Buscar congregação..." onkeyup="searchCongregations()">
+        </div>
+        <div class="table-container">
+          <table class="styled-table" id="congregationsTable">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Nome</th>
+                <th>Data de Criação</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="congregationsList">
+              <!-- Lista de congregações será inserida aqui -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Seção de Arquivamento Mensal -->
+      <div class="card archive-section">
+        <h2><i class="fas fa-archive"></i> Controle de Arquivamento</h2>
+        <div class="archive-controls">
+          <div class="archive-action">
+            <button class="primary-btn archive-btn" onclick="runMonthlyArchive()">
+              <i class="fas fa-file-export"></i> Executar Arquivamento do Mês
+            </button>
+            <p class="archive-notice">
+              <i class="fas fa-info-circle"></i> Esta ação arquivará todas as transações do mês anterior automaticamente
+            </p>
+          </div>
+
+          <div class="archive-filter">
+            <div class="filter-header">
+              <i class="fas fa-calendar-alt"></i>
+              <h3>Histórico de Arquivos</h3>
+            </div>
+            <div class="filter-controls">
+              <input type="month" id="archiveMonthFilter" class="form-control" onchange="loadArchives()" aria-label="Selecione o mês para filtrar">
+              <button class="filter-btn" onclick="loadArchives()">
+                <i class="fas fa-filter"></i> Filtrar
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="table-container">
+          <table class="styled-table archive-table">
+            <thead>
+              <tr>
+                <th><i class="fas fa-calendar"></i> Período</th>
+                <th><i class="fas fa-church"></i> Congregação</th>
+                <th><i class="fas fa-hand-holding-usd"></i> Dízimos</th>
+                <th><i class="fas fa-gift"></i> Ofertas</th>
+                <th><i class="fas fa-wallet"></i> Saldo Final</th>
+                <th><i class="fas fa-clock"></i> Data</th>
+                <th><i class="fas fa-ellipsis-h"></i> Ações</th>
+              </tr>
+            </thead>
+            <tbody id="archivesList">
+              <!-- Dados serão carregados aqui -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Seção de Todas as Transações -->
+      <div class="card transactions-section">
+        <div class="section-header">
+          <h2><i class="fas fa-exchange-alt"></i> Histórico Completo de Transações</h2>
+          <div class="header-actions">
+            <button class="refresh-btn" onclick="loadAllTransactions(1)">
+              <i class="fas fa-sync-alt"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="table-container">
+          <table class="styled-table transaction-table">
+            <thead>
+              <tr>
+                <th><i class="fas fa-clock"></i> Data/Hora</th>
+                <th><i class="fas fa-church"></i> Congregação</th>
+                <th><i class="fas fa-users"></i> Grupo</th>
+                <th><i class="fas fa-tag"></i> Tipo</th>
+                <th><i class="fas fa-coins"></i> Valor</th>
+                <th><i class="fas fa-user"></i> Responsável</th>
+              </tr>
+            </thead>
+            <tbody id="allTransactionsList">
+              <!-- Transações serão carregadas aqui -->
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pagination-controls">
+          <button class="pagination-btn" id="prevPage" onclick="changePage(-1)">
+            <i class="fas fa-chevron-left"></i> Anterior
+          </button>
+          <span class="page-indicator">Página <span id="currentPage">1</span></span>
+          <button class="pagination-btn" id="nextPage" onclick="changePage(1)">
+            Próxima <i class="fas fa-chevron-right"></i>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Modal para editar congregação -->
+    <div id="editCongregationModal" class="modal">
+      <div class="modal-content">
+        <span class="close" onclick="closeModal('editCongregationModal')">&times;</span>
+        <h2><i class="fas fa-edit"></i> Editar Congregação</h2>
+        <form id="editCongregationForm" class="modal-form">
+          <input type="hidden" id="editId" name="editId">
+          <div class="form-group">
+            <label for="editName"><i class="fas fa-church"></i> Nome da Congregação:</label>
+            <input type="text" id="editName" name="editName" required>
+          </div>
+          <button type="submit" class="primary-btn">
+            <i class="fas fa-save"></i> Salvar Alterações
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <div id="changePasswordModal" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="closeModal('changePasswordModal')">&times;</span>
+      <h2><i class="fas fa-key"></i> Alterar Senha</h2>
+      <form id="changePasswordForm" onsubmit="handleChangePassword(event)">
+        <input type="hidden" id="congregationId">
+        <div class="form-group">
+          <label for="currentPassword">Senha Atual:</label>
+          <input type="password" id="currentPassword" required>
+        </div>
+        <div class="form-group">
+          <label for="newPassword">Nova Senha:</label>
+          <input type="password" id="newPassword" required minlength="6">
+        </div>
+        <button type="submit" class="primary-btn">
+          <i class="fas fa-save"></i> Alterar Senha
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Loading Overlay -->
+  <div id="loading" class="loading-overlay">
+    <div class="loading-content">
+      <i class="fas fa-spinner fa-spin"></i> Carregando...
+    </div>
+  </div>
+  <!-- Modal de Detalhes do Arquivamento -->
+<div id="archiveDetailsModal" class="modal" style="display:none;">
+  <div class="modal-content">
+    <span class="close" onclick="closeModal('archiveDetailsModal')">&times;</span>
+    <h2>Detalhes do Arquivamento - <span id="modalMonthYear"></span></h2>
+    <div id="archiveGroupsDetails" style="margin-top: 20px;">
+      <!-- Os grupos arquivados serão carregados aqui -->
+    </div>
+  </div>
+</div>
+<!-- Modal de Edição de Transação -->
+<div id="editTransactionModal" class="modal">
+  <div class="modal-content">
+    <span class="close" onclick="closeModal('editTransactionModal')">&times;</span>
+    <h2><i class="fas fa-edit"></i> Editar Transação</h2>
+    <form onsubmit="updateTransaction(event)">
+      <input type="hidden" id="editTransId">
+      
+      <div class="form-group">
+        <label>Valor:</label>
+        <input type="number" step="0.01" id="editAmount" required>
+      </div>
+      
+      <div class="form-group">
+        <label>Descrição:</label>
+        <input type="text" id="editDescription">
+      </div>
+      
+      <div class="form-group">
+        <label>Responsável:</label>
+        <input type="text" id="editPerson" required>
+      </div>
+      
+      <button type="submit" class="primary-btn">
+        <i class="fas fa-save"></i> Atualizar
+      </button>
+    </form>
+  </div>
+</div>
+
+  <script src="/js/scripts.js"></script>
+</body>
+</html>

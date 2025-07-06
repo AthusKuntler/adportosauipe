@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Painel de controle financeiro">
+  <title>Dashboard - Sistema de Contas</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div class="dashboard">
+    <header>
+      <div class="header-content">
+        <h1 id="congregationName"></h1>
+        <button class="logout-btn" onclick="logout()">
+          <i class="fas fa-sign-out-alt"></i> Sair
+        </button>
+      </div>
+    </header>
+
+    <main>
+      <!-- SALDO GERAL -->
+      <section class="card balance-card">
+        <h2><i class="fas fa-wallet"></i> Saldo Geral</h2>
+        <div class="balance-container">
+          <span id="generalBalanceAmount">Carregando...</span>
+        </div>
+      </section>
+
+      <!-- REGISTRAR TRANSAÇÕES -->
+      <section class="card">
+        <h2><i class="fas fa-exchange-alt"></i> Registrar Transações</h2>
+        
+        <div class="transaction-types">
+          <!-- DÍZIMO E OFERTA -->
+          <div class="transaction-group">
+            <h3><i class="fas fa-hand-holding-heart"></i> Dízimos/Ofertas</h3>
+            <div class="buttons">
+              <button class="dizimo-btn" onclick="newTransaction('DIZIMO')">
+                <i class="fas fa-hand-holding-usd"></i> Dízimo
+              </button>
+              <button class="oferta-btn" onclick="newTransaction('OFERTA')">
+                <i class="fas fa-gift"></i> Oferta
+              </button>
+            </div>
+          </div>
+          
+          <!-- DEPÓSITO E RETIRADA -->
+          <div class="transaction-group">
+            <h3><i class="fas fa-users"></i> Operações com Grupos</h3>
+            <select id="groupSelect" class="form-select">
+              <option value="" disabled selected>Selecione um grupo...</option>
+            </select>
+            <div class="buttons">
+              <button class="deposito-btn" onclick="newTransaction('DEPOSITO')">
+                <i class="fas fa-arrow-down"></i> Depósito
+              </button>
+              <button class="retirada-btn" onclick="newTransaction('RETIRADA')">
+                <i class="fas fa-arrow-up"></i> Retirada
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- HISTÓRICO DE TRANSAÇÕES -->
+      <section class="card">
+        <h2><i class="fas fa-history"></i> Histórico de Transações</h2>
+        <div class="table-container">
+          <table class="transactions-table">
+            <thead>
+              <tr>
+                <th>Data/Hora</th>
+                <th>Tipo</th>
+                <th>Valor</th>
+                <th>Pessoa</th>
+                <th>Descrição</th>
+                <th>Grupo</th>
+              </tr>
+            </thead>
+            <tbody id="transactionsTable">
+              <!-- Transações serão inseridas aqui -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- HISTÓRICO ARQUIVADO -->
+      <section class="card">
+        <h2><i class="fas fa-archive"></i> Histórico Arquivado</h2>
+        <div class="table-container">
+          <table class="transactions-table">
+            <thead>
+              <tr>
+                <th>Mês/Ano</th>
+                <th>Dízimos</th>
+                <th>Ofertas</th>
+                <th>Saldo Final</th>
+                <th>Arquivado em</th>
+              </tr>
+            </thead>
+            <tbody id="archivedData">
+              <!-- Dados arquivados serão inseridos aqui -->
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- LOADING -->
+  <div id="loading" class="loading-overlay">
+    <div class="loading-content">
+      <i class="fas fa-spinner fa-spin"></i> Carregando...
+    </div>
+  </div>
+  <!-- Modal de Edição de Transação -->
+<div id="editTransactionModal" class="modal">
+  <div class="modal-content">
+    <span class="close" onclick="closeModal('editTransactionModal')">&times;</span>
+    <h2><i class="fas fa-edit"></i> Editar Transação</h2>
+    <form onsubmit="updateTransaction(event)">
+      <input type="hidden" id="editTransId">
+      
+      <div class="form-group">
+        <label>Valor:</label>
+        <input type="number" step="0.01" id="editAmount" required>
+      </div>
+      
+      <div class="form-group">
+        <label>Descrição:</label>
+        <input type="text" id="editDescription">
+      </div>
+      
+      <div class="form-group">
+        <label>Responsável:</label>
+        <input type="text" id="editPerson" required>
+      </div>
+      
+      <button type="submit" class="primary-btn">
+        <i class="fas fa-save"></i> Atualizar
+      </button>
+    </form>
+  </div>
+</div>
+
+  <script src="/js/scripts.js"></script>
+</body>
+</html>
