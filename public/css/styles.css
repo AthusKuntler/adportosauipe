@@ -1239,3 +1239,8 @@ button i {
 .edit-btn i {
   margin-right: 5px;
 }
+.archived-note {
+  font-size: 0.8em;
+  color: #888;
+  margin-left: 4px;
+}

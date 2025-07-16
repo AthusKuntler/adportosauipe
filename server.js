@@ -130,6 +130,28 @@ app.get('/api/group-types', authenticateToken, async (req, res) => {
   }
 });
 
+app.get('/api/balance', authenticateToken, async (req, res) => {
+  if (req.user.isAdmin) {
+    return res.status(403).json({ error: 'Apenas usuários comuns podem acessar esta rota' });
+  }
+
+  try {
+    const branchId = req.user.id;
+
+    const [result] = await db.query(`
+      SELECT COALESCE(SUM(current_balance), 0) AS balance
+      FROM congregation_groups
+      WHERE branch_id = ?
+    `, [branchId]);
+
+    res.json({ balance: parseFloat(result[0].balance) });
+
+  } catch (error) {
+    console.error('Erro ao calcular saldo geral da congregação:', error);
+    res.status(500).json({ error: 'Erro ao calcular saldo geral da congregação' });
+  }
+});
+
 app.get('/api/transactions', authenticateToken, async (req, res) => { 
   try {
     const { group_id } = req.query;
@@ -349,40 +371,47 @@ app.get('/api/admin/balances', authenticateToken, async (req, res) => {
 
   try {
     // 1. Saldos por congregação (versão corrigida)
-    const [branches] = await db.query(`
-      SELECT 
-        b.id,
-        b.name,
-        COALESCE(SUM(
-          CASE 
-            WHEN gt.name IN ('DIZIMO', 'OFERTA', 'DEPOSITO') THEN t.amount
-            WHEN gt.name = 'RETIRADA' THEN -t.amount
-            ELSE 0
-          END
-        ), 0) AS balance
-      FROM branches b
-      LEFT JOIN congregation_groups g ON b.id = g.branch_id
-      LEFT JOIN transactions t ON g.id = t.group_id
-      LEFT JOIN group_types gt ON t.group_type_id = gt.id
-      WHERE b.is_admin = FALSE
-      GROUP BY b.id
-    `);
+   const [branches] = await db.query(`
+  SELECT 
+    b.id,
+    b.name,
+    COALESCE(SUM(
+      CASE 
+        WHEN gt.name IN ('DIZIMO', 'OFERTA', 'DEPOSITO') THEN t.amount
+        WHEN gt.name = 'RETIRADA' THEN -t.amount
+        ELSE 0
+      END
+    ), 0) AS balance
+  FROM branches b
+  LEFT JOIN congregation_groups g ON b.id = g.branch_id
+  LEFT JOIN transactions t ON g.id = t.group_id
+  LEFT JOIN group_types gt ON t.group_type_id = gt.id
+  WHERE b.is_admin = FALSE
+  GROUP BY b.id
+`);
 
     // 2. Totais por tipo (versão corrigida)
-    const [typeBalances] = await db.query(`
-      SELECT 
-        gt.name AS type,
-        SUM(
-          CASE 
-            WHEN gt.name = 'RETIRADA' THEN -t.amount
-            ELSE t.amount
-          END
-        ) AS total
-      FROM transactions t
-      JOIN group_types gt ON t.group_type_id = gt.id
-      WHERE gt.name IN ('DIZIMO', 'OFERTA')
-      GROUP BY gt.name
-    `);
+const now = new Date();
+const currentMonth = now.getMonth() + 1;
+const currentYear = now.getFullYear();
+
+const [typeBalances] = await db.query(`
+  SELECT 
+    gt.name AS type,
+    SUM(
+      CASE 
+        WHEN gt.name = 'RETIRADA' THEN -t.amount
+        ELSE t.amount
+      END
+    ) AS total
+  FROM transactions t
+  JOIN group_types gt ON t.group_type_id = gt.id
+  WHERE 
+    gt.name IN ('DIZIMO', 'OFERTA') AND
+    MONTH(t.transaction_date) = ? AND
+    YEAR(t.transaction_date) = ?
+  GROUP BY gt.name
+`, [currentMonth, currentYear]);
 
     // 3. Total geral
     const totalBalance = branches.reduce((sum, branch) => sum + parseFloat(branch.balance), 0);
@@ -475,6 +504,7 @@ app.post('/api/admin/monthly-archive', authenticateToken, async (req, res) => {
     const year = previous.getFullYear();
     const month = String(previous.getMonth() + 1).padStart(2, '0');
     const monthYear = `${year}-${month}`;
+    const archiveDate = new Date();
 
     // 4. Processar cada congregação
     for (const branch of branches) {
@@ -523,10 +553,10 @@ app.post('/api/admin/monthly-archive', authenticateToken, async (req, res) => {
       // 8. Inserir registro de arquivamento
       const [archiveResult] = await connection.query(`
         INSERT INTO monthly_archives (
-          branch_id, branch_name, month_year, 
+          branch_id, month_year, 
           total_dizimos, total_ofertas, final_balance, archived_at
-        ) VALUES (?, ?, ?, ?, ?, ?, NOW())
-      `, [branchId, branch.name, monthYear, totalDizimos, totalOfertas, finalBalance]);
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `, [branchId, monthYear, totalDizimos, totalOfertas, finalBalance, archiveDate]);
 
       const archiveId = archiveResult.insertId;
 
@@ -553,8 +583,8 @@ app.post('/api/admin/monthly-archive', authenticateToken, async (req, res) => {
         await connection.query(`
           INSERT INTO transactions (
             group_id, group_type_id, amount, description,
-            person_name, branch_id, previous_balance, new_balance
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            person_name, branch_id, previous_balance, new_balance, transaction_date
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
           group.id,
           typeMap[type],
@@ -563,7 +593,8 @@ app.post('/api/admin/monthly-archive', authenticateToken, async (req, res) => {
           'Sistema',
           branchId,
           currentBalance,
-          0
+          0,
+          archiveDate
         ]);
 
         // Atualizar saldo para zero
@@ -572,78 +603,7 @@ app.post('/api/admin/monthly-archive', authenticateToken, async (req, res) => {
         `, [group.id]);
       }
     }
-
-app.get('/api/admin/archives/:id/pdf', authenticateToken, async (req, res) => {
-  if (!req.user.isAdmin) {
-    return res.status(403).json({ error: 'Acesso não autorizado' });
-  }
-
-  try {
-    const archiveId = req.params.id;
-    
-    // Buscar dados do arquivo
-    const [archive] = await db.query(`
-      SELECT * FROM monthly_archives WHERE id = ?
-    `, [archiveId]);
-    
-    if (!archive.length) {
-      return res.status(404).json({ error: 'Arquivo não encontrado' });
-    }
-    
-    // Buscar grupos relacionados
-    const [groups] = await db.query(`
-      SELECT * FROM monthly_group_archives WHERE archive_id = ?
-    `, [archiveId]);
-
-    // Criar PDF
-    const doc = new PDFDocument();
-    const fileName = `arquivo-${archive[0].month_year}.pdf`;
-    
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-    
-    doc.pipe(res);
-    
-    // Cabeçalho
-    doc.fontSize(20).text('Relatório Mensal de Contas', { align: 'center' });
-    doc.moveDown();
-    doc.fontSize(16).text(`Congregação: ${archive[0].branch_name}`);
-    doc.text(`Período: ${archive[0].month_year.replace('-', '/')}`);
-    doc.text(`Data do Arquivamento: ${new Date(archive[0].archived_at).toLocaleDateString()}`);
-    doc.moveDown();
-
-    // Totais
-    doc.fontSize(14).text('RESUMO FINANCEIRO', { underline: true });
-    doc.text(`Dízimos: ${formatCurrency(archive[0].total_dizimos)}`);
-    doc.text(`Ofertas: ${formatCurrency(archive[0].total_ofertas)}`);
-    doc.text(`Saldo Final: ${formatCurrency(archive[0].final_balance)}`);
-    doc.moveDown();
-
-    // Grupos
-    doc.fontSize(14).text('DETALHAMENTO POR GRUPO', { underline: true });
-    groups.forEach(group => {
-      doc.text(`${group.group_name}:`);
-      doc.text(`  Saldo Inicial: ${formatCurrency(group.initial_balance)}`);
-      doc.text(`  Saldo Final: ${formatCurrency(group.final_balance)}`);
-      doc.moveDown(0.5);
-    });
-
-    doc.end();
-  } catch (error) {
-    console.error('Erro ao gerar PDF:', error);
-    res.status(500).json({ error: 'Erro ao gerar relatório' });
-  }
-});
-
-// Função auxiliar para formatar moeda
-function formatCurrency(value) {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL'
-  }).format(value);
-}
-
-    await connection.commit();
+     await connection.commit();
     res.json({ 
       success: true, 
       message: 'Arquivamento mensal concluído com sucesso',
@@ -662,6 +622,229 @@ function formatCurrency(value) {
     connection.release();
   }
 });
+
+app.get('/api/admin/archives/:id/pdf', authenticateToken, async (req, res) => {
+  if (!req.user.isAdmin) {
+    return res.status(403).json({ error: 'Acesso não autorizado' });
+  }
+
+  try {
+    const archiveId = req.params.id;
+
+    const [archiveRows] = await db.query(`
+      SELECT a.*, b.name AS branch_name
+      FROM monthly_archives a
+      JOIN branches b ON b.id = a.branch_id
+      WHERE a.id = ?
+    `, [archiveId]);
+
+    if (!archiveRows.length) {
+      return res.status(404).json({ error: 'Arquivo não encontrado' });
+    }
+
+    const archive = archiveRows[0];
+
+    const [groups] = await db.query(`
+      SELECT group_name, initial_balance, final_balance
+      FROM monthly_group_archives
+      WHERE archive_id = ?
+    `, [archiveId]);
+
+    const PDFDocument = require('pdfkit');
+    const doc = new PDFDocument({ margin: 50 });
+    const fileName = `arquivo-${archive.month_year}.pdf`;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    doc.pipe(res);
+
+    // === LOGO e CABEÇALHO INSTITUCIONAL ===
+    const fs = require('fs');
+    const path = require('path');
+
+    try {
+   const logoPath = path.join(__dirname, 'public', 'images', 'igreja-logo.png');
+   if (fs.existsSync(logoPath)) {
+    doc.image(logoPath, 250, 30, { width: 100 });
+  }
+} catch (err) {
+  console.warn('Erro ao carregar logo:', err.message);
+}
+
+    doc.moveDown(3);
+    doc.fontSize(12).fillColor('#000').font('Helvetica-Bold')
+      .text('IGREJA EVANGÉLICA ASSEMBLEIA DE DEUS EM PORTO DE SAUIPE – BAHIA', {
+        align: 'center'
+      });
+
+    doc.fontSize(11).font('Helvetica')
+      .text('RUA PRINCIPAL, LOTEAMENTO MARESIAS S/N – CNPJ: 22.188.443/0001-90', {
+        align: 'center'
+      });
+
+    doc.moveDown(0.3);
+    doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
+    doc.moveDown(1.5);
+
+    // === Cabeçalho principal ===
+    doc.fontSize(18).fillColor('#004080').text('Relatório Mensal de Contas', { align: 'center' });
+    doc.moveDown(2);
+    doc.fontSize(14).fillColor('black');
+    doc.text(`Congregação: ${archive.branch_name}`);
+    doc.text(`Período: ${archive.month_year.replace('-', '/')}`);
+    doc.text(`Data do Arquivamento: ${new Date(archive.archived_at).toLocaleDateString('pt-BR')}`);
+    doc.moveDown(1);
+
+    // === RESUMO ===
+    doc.fontSize(16).fillColor('#333').text('Resumo Financeiro', { underline: true });
+    doc.moveDown(0.5);
+    doc.fontSize(12).fillColor('black');
+    doc.text(`Dízimos:       ${formatCurrency(archive.total_dizimos)}`);
+    doc.text(`Ofertas:       ${formatCurrency(archive.total_ofertas)}`);
+    doc.text(`Saldo Final:   ${formatCurrency(archive.final_balance)}`);
+    doc.moveDown(1);
+
+    // === Detalhamento por Grupo ===
+    doc.fontSize(16).fillColor('#333').text('Detalhamento por Grupo', { underline: true });
+    doc.moveDown(0.5);
+
+    // Cabeçalho da "tabela"
+    doc.fontSize(12).fillColor('#000').text('Grupo', 50)
+      .text('Saldo Inicial', 250, doc.y - 15, { width: 100, align: 'right' })
+      .text('Saldo Final', 400, doc.y - 15, { width: 100, align: 'right' });
+    doc.moveDown(0.3);
+    doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke('#888');
+    doc.moveDown(0.5);
+
+    // Linhas por grupo
+    groups.forEach(group => {
+      doc.fillColor('#333').text(group.group_name, 50)
+        .text(formatCurrency(group.initial_balance), 250, doc.y - 15, { width: 100, align: 'right' })
+        .text(formatCurrency(group.final_balance), 400, doc.y - 15, { width: 100, align: 'right' });
+      doc.moveDown(0.2);
+    });
+
+    // Rodapé com data de geração
+    doc.moveDown(2);
+    doc.fontSize(10).fillColor('#888').text(`Relatório gerado em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`, {
+      align: 'center'
+    });
+
+    doc.end();
+
+  } catch (error) {
+    console.error('Erro ao gerar PDF:', error);
+    res.status(500).json({ error: 'Erro ao gerar relatório' });
+  }
+
+  function formatCurrency(value) {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    }).format(value);
+  }
+});
+
+
+app.get('/api/admin/branches/report/pdf', authenticateToken, async (req, res) => {
+  if (!req.user.isAdmin) {
+    return res.status(403).json({ error: 'Acesso não autorizado' });
+  }
+
+  try {
+    const [branches] = await db.query(`
+      SELECT b.id, b.name, COALESCE(SUM(g.current_balance), 0) AS total_balance
+      FROM branches b
+      LEFT JOIN congregation_groups g ON g.branch_id = b.id
+      WHERE b.is_admin = FALSE
+      GROUP BY b.id, b.name
+    `);
+
+    const totalGeral = branches.reduce((sum, b) => sum + parseFloat(b.total_balance), 0);
+
+    const PDFDocument = require('pdfkit');
+    const doc = new PDFDocument({ margin: 50 });
+    const fileName = `relatorio-saldos-congregacoes.pdf`;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+
+    doc.pipe(res);
+
+    // === LOGO e CABEÇALHO INSTITUCIONAL ===
+    const fs = require('fs');
+    const path = require('path');
+
+    try {
+  const logoPath = path.join(__dirname, 'public', 'images', 'igreja-logo.png');
+  if (fs.existsSync(logoPath)) {
+    doc.image(logoPath, 250, 30, { width: 100 });
+  }
+} catch (err) {
+  console.warn('Erro ao carregar logo:', err.message);
+}
+    doc.moveDown(3);
+    doc.fontSize(12).fillColor('#000').font('Helvetica-Bold')
+      .text('IGREJA EVANGÉLICA ASSEMBLEIA DE DEUS EM PORTO DE SAUIPE – BAHIA', {
+        align: 'center'
+      });
+
+    doc.fontSize(11).font('Helvetica')
+      .text('RUA PRINCIPAL, LOTEAMENTO MARESIAS S/N – CNPJ: 22.188.443/0001-90', {
+        align: 'center'
+      });
+
+    doc.moveDown(0.3);
+    doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
+    doc.moveDown(1.5);
+
+    // === Título ===
+    doc.fontSize(18).fillColor('#004080').text('Relatório de Saldos por Congregação', {
+      align: 'center'
+    });
+    doc.moveDown(2);
+
+    // === Conteúdo ===
+    doc.fontSize(14).fillColor('black');
+    branches.forEach(branch => {
+      doc.text(`${branch.name}:`, 50)
+        .text(formatCurrency(branch.total_balance), 400, doc.y - 15, {
+          width: 100,
+          align: 'right'
+        });
+      doc.moveDown(0.5);
+    });
+
+    // === Total geral ===
+    doc.moveDown(1);
+    doc.fontSize(16).fillColor('#333').text(`Saldo Geral: ${formatCurrency(totalGeral)}`, {
+      underline: true,
+      align: 'right'
+    });
+
+    // === Rodapé ===
+    doc.moveDown(2);
+    doc.fontSize(10).fillColor('#888').text(`Relatório gerado em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`, {
+      align: 'center'
+    });
+
+    doc.end();
+
+  } catch (error) {
+    console.error('Erro ao gerar relatório geral:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Erro ao gerar relatório geral' });
+    }
+  }
+
+  function formatCurrency(value) {
+    return new Intl.NumberFormat('pt-BR', {
+      style: 'currency',
+      currency: 'BRL'
+    }).format(value);
+  }
+});
+
 
 // server.js - Atualize a rota reset-all-groups
 app.post('/api/admin/branches/:id/reset-all-groups', authenticateToken, async (req, res) => {
@@ -697,12 +880,14 @@ app.post('/api/admin/branches/:id/reset-all-groups', authenticateToken, async (r
       if (amount <= 0) {
         throw new Error(`Valor inválido para transação no grupo ${group.id}: ${amount}`);
       }
+      // Inserir transação de zeramento
+      const archiveDate = new Date();
 
       await connection.query(
         `INSERT INTO transactions (
           group_id, group_type_id, amount, description,
-          person_name, branch_id, previous_balance, new_balance
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          person_name, branch_id, previous_balance, new_balance, transaction_date
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           group.id,
           typeMap[type],
@@ -711,7 +896,8 @@ app.post('/api/admin/branches/:id/reset-all-groups', authenticateToken, async (r
           'Sistema',
           branchId,
           currentBalance,
-          0
+          0,
+          archiveDate
         ]
       );
 

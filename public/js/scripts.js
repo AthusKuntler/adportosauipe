@@ -124,8 +124,8 @@ function updateTransactionsTable(transactions) {
       'OUTROS': 'Outros'
     };
     
-    // Usar transaction_type em vez de type
-    const transactionType = transaction_type || 'OUTROS';
+    // Verifica se o tipo de transação é válido
+    const transactionType = transaction.type || 'OUTROS';
     
     row.innerHTML = `
       <td>${formatDateTime(transaction.transaction_date)}</td>
@@ -360,7 +360,8 @@ async function newTransaction(type) {
     // 4. Atualização otimizada
     await Promise.all([
       loadGroups(), // Atualiza a lista de grupos
-      selectedGroupId ? loadTransactions(selectedGroupId) : Promise.resolve()
+      selectedGroupId ? loadTransactions(selectedGroupId) : Promise.resolve(),
+      loadUserBalance()
     ]);
 
     showAlert('Transação registrada com sucesso!', 'success');
@@ -373,6 +374,29 @@ async function newTransaction(type) {
     hideLoading();
   }
 }
+
+async function loadUserBalance() {
+  try {
+    showLoading();
+    const response = await fetch('/api/balance', {
+      headers: getAuthHeaders()
+    });
+
+    if (!response.ok) throw new Error('Erro ao buscar saldo da congregação');
+
+    const data = await response.json();
+    const saldoEl = document.getElementById('totalUserBalance');
+    if (saldoEl) {
+      saldoEl.textContent = formatCurrency(data.balance);
+    }
+  } catch (error) {
+    console.error('Erro ao carregar saldo do usuário:', error);
+    showAlert('error', error.message);
+  } finally {
+    hideLoading();
+  }
+}
+
 async function generatePDF(archiveId) {
   try {
     // Abrir em nova aba
@@ -520,17 +544,42 @@ async function loadBalances() {
     // Atualiza totais
     document.getElementById('totalBalance').textContent = formatCurrency(totalBalance);
     
-    // Atualiza totais por tipo
-    const dizimoTotal = typeBalances.reduce((acc, curr) => curr.type === 'DIZIMO' ? acc + curr.total : acc, 0);
-    const ofertaTotal = typeBalances.reduce((acc, curr) => curr.type === 'OFERTA' ? acc + curr.total : acc, 0);
-    
-    document.getElementById('totalBalance').textContent = formatCurrency(totalBalance);
-    document.getElementById('dizimoBalance').innerHTML = `
-      <i class="fas fa-hand-holding-usd"></i> Dízimos: ${formatCurrency(dizimoTotal)}
-    `;
-    document.getElementById('ofertaBalance').innerHTML = `
-      <i class="fas fa-gift"></i> Ofertas: ${formatCurrency(ofertaTotal)}
-    `;
+    // Verifica se o mês atual foi arquivado
+const currentMonthYear = new Date().toISOString().slice(0, 7); // "YYYY-MM"
+let isArchived = false;
+
+try {
+  const archiveResponse = await fetch(`/api/admin/archives?month=${currentMonthYear}`, {
+    headers: { 'Authorization': `Bearer ${token}` }
+  });
+
+  if (archiveResponse.ok) {
+    const archives = await archiveResponse.json();
+    isArchived = archives.length > 0;
+  }
+} catch (err) {
+  console.warn('Não foi possível verificar arquivamento:', err);
+}
+
+// Atualiza totais por tipo (Dízimo e Oferta)
+if (isArchived) {
+  document.getElementById('dizimoBalance').innerHTML = `
+    <i class="fas fa-hand-holding-usd"></i> Dízimos: R$ 0,00 <span class="archived-note">(mês arquivado)</span>
+  `;
+  document.getElementById('ofertaBalance').innerHTML = `
+    <i class="fas fa-gift"></i> Ofertas: R$ 0,00 <span class="archived-note">(mês arquivado)</span>
+  `;
+} else {
+  const dizimoTotal = typeBalances.reduce((acc, curr) => curr.type === 'DIZIMO' ? acc + curr.total : acc, 0);
+  const ofertaTotal = typeBalances.reduce((acc, curr) => curr.type === 'OFERTA' ? acc + curr.total : acc, 0);
+
+  document.getElementById('dizimoBalance').innerHTML = `
+    <i class="fas fa-hand-holding-usd"></i> Dízimos: ${formatCurrency(dizimoTotal)}
+  `;
+  document.getElementById('ofertaBalance').innerHTML = `
+    <i class="fas fa-gift"></i> Ofertas: ${formatCurrency(ofertaTotal)}
+  `;
+}
 
     // Atualiza lista de congregações
     const branchesList = document.getElementById('branchesList');
@@ -693,6 +742,35 @@ async function runMonthlyArchive() {
     hideLoading();
   }
 }
+
+async function downloadMonthlyArchivePDF(archiveId) {
+  try {
+    showLoading();
+
+    const response = await fetch(`/api/admin/archives/${archiveId}/pdf`, {
+      method: 'GET',
+      headers: {
+        ...getAuthHeaders(),
+      }
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error || 'Falha ao baixar PDF');
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+
+  } catch (error) {
+    console.error('Erro ao baixar PDF:', error);
+    showAlert('error', error.message);
+  } finally {
+    hideLoading();
+  }
+}
+
 async function loadArchives() {
   try {
     showLoading();
@@ -719,8 +797,11 @@ async function loadArchives() {
           <button class="details-btn" onclick="showArchiveDetails(${archive.id})">
             <i class="fas fa-search"></i> Detalhes
           </button>
-          <button class="pdf-btn" onclick="generatePDF(${archive.id})">
+          <button class="pdf-btn" onclick="downloadMonthlyArchivePDF(${archive.id})">
             <i class="fas fa-file-pdf"></i> PDF
+          </button>
+           <button onclick="downloadBranchesReportPDF()">
+            <i class="fas fa-file-pdf"></i> PDF de Saldos por Congregação
           </button>
         </td>
       </tr>
@@ -732,6 +813,30 @@ async function loadArchives() {
     hideLoading();
   }
 }
+
+async function downloadBranchesReportPDF() {
+  try {
+    showLoading();
+    const response = await fetch('/api/admin/branches/report/pdf', {
+      headers: getAuthHeaders()
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error || 'Erro ao baixar o PDF');
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank');
+  } catch (error) {
+    console.error('Erro ao baixar PDF geral:', error);
+    showAlert('error', error.message);
+  } finally {
+    hideLoading();
+  }
+}
+
 async function showArchiveDetails(archiveId) {
   try {
     showLoading();
@@ -1026,6 +1131,7 @@ async function loadDashboard() {
 
     document.getElementById('congregationName').textContent = user.name;
     await loadGroups(true);
+    await loadUserBalance();
     await loadArchivedData();
     
   } catch (error) {
