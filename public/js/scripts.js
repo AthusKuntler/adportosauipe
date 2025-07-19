@@ -800,9 +800,6 @@ async function loadArchives() {
           <button class="pdf-btn" onclick="downloadMonthlyArchivePDF(${archive.id})">
             <i class="fas fa-file-pdf"></i> PDF
           </button>
-           <button onclick="downloadBranchesReportPDF()">
-            <i class="fas fa-file-pdf"></i> PDF de Saldos por Congregação
-          </button>
         </td>
       </tr>
     `).join('');
@@ -817,7 +814,12 @@ async function loadArchives() {
 async function downloadBranchesReportPDF() {
   try {
     showLoading();
-    const response = await fetch('/api/admin/branches/report/pdf', {
+
+    const hoje = new Date();
+    hoje.setMonth(hoje.getMonth() - 1); // mês anterior
+    const mesFormatado = hoje.toISOString().slice(0, 7); // yyyy-mm
+
+    const response = await fetch(`/api/admin/branches/report/pdf?month=${mesFormatado}`, {
       headers: getAuthHeaders()
     });
 
@@ -836,6 +838,7 @@ async function downloadBranchesReportPDF() {
     hideLoading();
   }
 }
+
 
 async function showArchiveDetails(archiveId) {
   try {

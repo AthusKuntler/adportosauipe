@@ -671,7 +671,7 @@ app.get('/api/admin/archives/:id/pdf', authenticateToken, async (req, res) => {
   console.warn('Erro ao carregar logo:', err.message);
 }
 
-    doc.moveDown(3);
+    doc.moveDown(6);
     doc.fontSize(12).fillColor('#000').font('Helvetica-Bold')
       .text('IGREJA EVANGÉLICA ASSEMBLEIA DE DEUS EM PORTO DE SAUIPE – BAHIA', {
         align: 'center'
@@ -724,11 +724,22 @@ app.get('/api/admin/archives/:id/pdf', authenticateToken, async (req, res) => {
       doc.moveDown(0.2);
     });
 
-    // Rodapé com data de geração
-    doc.moveDown(2);
-    doc.fontSize(10).fillColor('#888').text(`Relatório gerado em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`, {
-      align: 'center'
-    });
+    // === ASSINATURAS ===
+doc.moveDown(5);
+const signatureY = doc.y;
+
+doc.moveTo(80, signatureY).lineTo(230, signatureY).stroke();
+doc.moveTo(330, signatureY).lineTo(480, signatureY).stroke();
+
+doc.fontSize(11).fillColor('#000');
+doc.text('1º Tesoureiro', 110, signatureY + 5);
+doc.text('2º Tesoureiro', 365, signatureY + 5);
+
+// Rodapé com data de geração
+doc.moveDown(3);
+doc.fontSize(10).fillColor('#888').text(`Relatório gerado em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`, {
+  align: 'center'
+});
 
     doc.end();
 
@@ -745,88 +756,95 @@ app.get('/api/admin/archives/:id/pdf', authenticateToken, async (req, res) => {
   }
 });
 
-
 app.get('/api/admin/branches/report/pdf', authenticateToken, async (req, res) => {
   if (!req.user.isAdmin) {
     return res.status(403).json({ error: 'Acesso não autorizado' });
   }
 
+  const { month } = req.query;
+  if (!month) {
+    return res.status(400).json({ error: 'Parâmetro "month" é obrigatório' });
+  }
+
   try {
     const [branches] = await db.query(`
-      SELECT b.id, b.name, COALESCE(SUM(g.current_balance), 0) AS total_balance
-      FROM branches b
-      LEFT JOIN congregation_groups g ON g.branch_id = b.id
-      WHERE b.is_admin = FALSE
+      SELECT b.id, b.name, COALESCE(SUM(mga.final_balance), 0) AS total_balance
+      FROM monthly_archives ma
+      JOIN branches b ON b.id = ma.branch_id
+      LEFT JOIN monthly_group_archives mga ON mga.archive_id = ma.id
+      WHERE ma.month_year = ?
       GROUP BY b.id, b.name
-    `);
+    `, [month]);
 
     const totalGeral = branches.reduce((sum, b) => sum + parseFloat(b.total_balance), 0);
 
-    const PDFDocument = require('pdfkit');
     const doc = new PDFDocument({ margin: 50 });
-    const fileName = `relatorio-saldos-congregacoes.pdf`;
+    const fileName = `relatorio-saldos-congregacoes-${month}.pdf`;
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
-
     doc.pipe(res);
 
-    // === LOGO e CABEÇALHO INSTITUCIONAL ===
-    const fs = require('fs');
-    const path = require('path');
+    // === LOGO e cabeçalho institucional ===
+    const logoPath = path.join(__dirname, './public/images/igreja-logo.png');
+    if (fs.existsSync(logoPath)) {
+      doc.image(logoPath, 260, 30, { width: 90 });
+    }
 
-    try {
-  const logoPath = path.join(__dirname, 'public', 'images', 'igreja-logo.png');
-  if (fs.existsSync(logoPath)) {
-    doc.image(logoPath, 250, 30, { width: 100 });
-  }
-} catch (err) {
-  console.warn('Erro ao carregar logo:', err.message);
-}
-    doc.moveDown(3);
+    doc.moveDown(6);
     doc.fontSize(12).fillColor('#000').font('Helvetica-Bold')
-      .text('IGREJA EVANGÉLICA ASSEMBLEIA DE DEUS EM PORTO DE SAUIPE – BAHIA', {
-        align: 'center'
-      });
+      .text('IGREJA EVANGÉLICA ASSEMBLEIA DE DEUS EM PORTO DE SAUIPE – BAHIA', { align: 'center' });
 
     doc.fontSize(11).font('Helvetica')
-      .text('RUA PRINCIPAL, LOTEAMENTO MARESIAS S/N – CNPJ: 22.188.443/0001-90', {
-        align: 'center'
-      });
+      .text('RUA PRINCIPAL, LOTEAMENTO MARESIAS S/N – CNPJ: 22.188.443/0001-90', { align: 'center' });
 
-    doc.moveDown(0.3);
+    doc.moveDown(0.5);
     doc.moveTo(50, doc.y).lineTo(550, doc.y).stroke();
+    doc.moveDown(2);
+
+    // Título
+    doc.fontSize(18).fillColor('#004080').text(`Relatório de Saldos por Congregação`, { align: 'center' });
+    doc.moveDown(1);
+    doc.fontSize(12).fillColor('black').text(`Período: ${month.replace('-', '/')}`);
     doc.moveDown(1.5);
 
-    // === Título ===
-    doc.fontSize(18).fillColor('#004080').text('Relatório de Saldos por Congregação', {
-      align: 'center'
-    });
-    doc.moveDown(2);
+    // === TABELA DE SALDOS POR CONGREGAÇÃO ===
+doc.moveDown(1);
+doc.fontSize(14).fillColor('#333').text('Saldos por Congregação', { underline: true });
+doc.moveDown(0.5);
 
-    // === Conteúdo ===
-    doc.fontSize(14).fillColor('black');
-    branches.forEach(branch => {
-      doc.text(`${branch.name}:`, 50)
-        .text(formatCurrency(branch.total_balance), 400, doc.y - 15, {
-          width: 100,
-          align: 'right'
-        });
-      doc.moveDown(0.5);
-    });
+branches.forEach(branch => {
+  doc.fontSize(12).fillColor('#000');
+  const yBefore = doc.y;
+  doc.text(branch.name, 60, yBefore + 3);
+  doc.text(formatCurrency(branch.total_balance), 400, yBefore + 3, { align: 'right' });
+  doc.moveTo(50, yBefore + 18).lineTo(550, yBefore + 18).stroke('#ccc');
+  doc.moveDown(1);
+});
 
-    // === Total geral ===
-    doc.moveDown(1);
-    doc.fontSize(16).fillColor('#333').text(`Saldo Geral: ${formatCurrency(totalGeral)}`, {
-      underline: true,
-      align: 'right'
-    });
 
-    // === Rodapé ===
-    doc.moveDown(2);
-    doc.fontSize(10).fillColor('#888').text(`Relatório gerado em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`, {
-      align: 'center'
-    });
+doc.moveDown(1);
+doc.fontSize(13).fillColor('#000').text(`Saldo Geral: ${formatCurrency(totalGeral)}`, {
+  underline: true,
+  align: 'right'
+});
+
+// === ASSINATURAS ===
+doc.moveDown(5);
+const signatureY = doc.y;
+
+doc.moveTo(80, signatureY).lineTo(230, signatureY).stroke();
+doc.moveTo(330, signatureY).lineTo(480, signatureY).stroke();
+
+doc.fontSize(11).fillColor('#000');
+doc.text('1º Tesoureiro', 110, signatureY + 5);
+doc.text('2º Tesoureiro', 365, signatureY + 5);
+
+// Rodapé com data de geração
+doc.moveDown(3);
+doc.fontSize(10).fillColor('#888').text(`Relatório gerado em ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR')}`, {
+  align: 'center'
+});
 
     doc.end();
 
@@ -844,6 +862,7 @@ app.get('/api/admin/branches/report/pdf', authenticateToken, async (req, res) =>
     }).format(value);
   }
 });
+
 
 
 // server.js - Atualize a rota reset-all-groups
