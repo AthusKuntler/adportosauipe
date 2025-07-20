@@ -545,24 +545,27 @@ async function loadBalances() {
     document.getElementById('totalBalance').textContent = formatCurrency(totalBalance);
     
     // Verifica se o mês atual foi arquivado
-const currentMonthYear = new Date().toISOString().slice(0, 7); // "YYYY-MM"
-let isArchived = false;
+const today = new Date();
+const previousMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+const previousMonthFormatted = previousMonth.toISOString().slice(0, 7); // yyyy-mm
+
+let isPreviousMonthArchived = false;
 
 try {
-  const archiveResponse = await fetch(`/api/admin/archives?month=${currentMonthYear}`, {
+  const archiveResponse = await fetch(`/api/admin/archives?month=${previousMonthFormatted}`, {
     headers: { 'Authorization': `Bearer ${token}` }
   });
 
   if (archiveResponse.ok) {
     const archives = await archiveResponse.json();
-    isArchived = archives.length > 0;
+    isPreviousMonthArchived = archives.length > 0;
   }
 } catch (err) {
   console.warn('Não foi possível verificar arquivamento:', err);
 }
 
 // Atualiza totais por tipo (Dízimo e Oferta)
-if (isArchived) {
+if (isPreviousMonthArchived) {
   document.getElementById('dizimoBalance').innerHTML = `
     <i class="fas fa-hand-holding-usd"></i> Dízimos: R$ 0,00 <span class="archived-note">(mês arquivado)</span>
   `;
