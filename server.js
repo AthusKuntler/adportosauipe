@@ -370,50 +370,59 @@ app.get('/api/admin/balances', authenticateToken, async (req, res) => {
   }
 
   try {
-    // 1. Saldos por congregação (versão corrigida)
-   const [branches] = await db.query(`
-  SELECT 
-    b.id,
-    b.name,
-    COALESCE(SUM(
-      CASE 
-        WHEN gt.name IN ('DIZIMO', 'OFERTA', 'DEPOSITO') THEN t.amount
-        WHEN gt.name = 'RETIRADA' THEN -t.amount
-        ELSE 0
-      END
-    ), 0) AS balance
-  FROM branches b
-  LEFT JOIN congregation_groups g ON b.id = g.branch_id
-  LEFT JOIN transactions t ON g.id = t.group_id
-  LEFT JOIN group_types gt ON t.group_type_id = gt.id
-  WHERE b.is_admin = FALSE
-  GROUP BY b.id
-`);
+    // 1️⃣ Saldo por congregação (apenas transações após o último arquivamento)
+    const [branches] = await db.query(`
+      SELECT 
+        b.id,
+        b.name,
+        COALESCE(SUM(
+          CASE 
+            WHEN gt.name IN ('DIZIMO', 'OFERTA', 'DEPOSITO') THEN t.amount
+            WHEN gt.name = 'RETIRADA' THEN -t.amount
+            ELSE 0
+          END
+        ), 0) AS balance
+      FROM branches b
+      LEFT JOIN congregation_groups g 
+        ON b.id = g.branch_id
+      LEFT JOIN transactions t 
+        ON g.id = t.group_id
+      LEFT JOIN group_types gt 
+        ON t.group_type_id = gt.id
+      LEFT JOIN (
+        SELECT branch_id, MAX(archived_at) AS last_archive
+        FROM monthly_archives
+        GROUP BY branch_id
+      ) ma ON ma.branch_id = b.id
+      WHERE b.is_admin = FALSE
+        AND (t.transaction_date IS NULL OR t.transaction_date > IFNULL(ma.last_archive, '1900-01-01'))
+      GROUP BY b.id
+    `);
 
-    // 2. Totais por tipo (versão corrigida)
-const now = new Date();
-const currentMonth = now.getMonth() + 1;
-const currentYear = now.getFullYear();
+    // 2️⃣ Totais por tipo (após último arquivamento geral)
+    const [typeBalances] = await db.query(`
+      SELECT 
+        gt.name AS type,
+        SUM(
+          CASE 
+            WHEN gt.name = 'RETIRADA' THEN -t.amount
+            ELSE t.amount
+          END
+        ) AS total
+      FROM transactions t
+      JOIN group_types gt ON t.group_type_id = gt.id
+      LEFT JOIN (
+        SELECT branch_id, MAX(archived_at) AS last_archive
+        FROM monthly_archives
+        GROUP BY branch_id
+      ) ma ON ma.branch_id = t.branch_id
+      WHERE 
+        gt.name IN ('DIZIMO', 'OFERTA')
+        AND t.transaction_date > IFNULL(ma.last_archive, '1900-01-01')
+      GROUP BY gt.name
+    `);
 
-const [typeBalances] = await db.query(`
-  SELECT 
-    gt.name AS type,
-    SUM(
-      CASE 
-        WHEN gt.name = 'RETIRADA' THEN -t.amount
-        ELSE t.amount
-      END
-    ) AS total
-  FROM transactions t
-  JOIN group_types gt ON t.group_type_id = gt.id
-  WHERE 
-    gt.name IN ('DIZIMO', 'OFERTA') AND
-    MONTH(t.transaction_date) = ? AND
-    YEAR(t.transaction_date) = ?
-  GROUP BY gt.name
-`, [currentMonth, currentYear]);
-
-    // 3. Total geral
+    // 3️⃣ Total geral (somatório das congregações já filtradas)
     const totalBalance = branches.reduce((sum, branch) => sum + parseFloat(branch.balance), 0);
 
     res.json({ 
@@ -430,6 +439,7 @@ const [typeBalances] = await db.query(`
     });
   }
 });
+
 
 app.get('/api/admin/branches/:id/groups', authenticateToken, async (req, res) => {
   if (!req.user.isAdmin) {
