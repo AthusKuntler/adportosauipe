@@ -778,7 +778,7 @@ async function loadArchives() {
   try {
     showLoading();
     const monthFilter = document.getElementById('archiveMonthFilter').value;
-    
+
     const response = await fetch(`/api/admin/archives${monthFilter ? `?month=${monthFilter}` : ''}`, {
       headers: getAuthHeaders()
     });
@@ -787,16 +787,25 @@ async function loadArchives() {
     
     const archives = await response.json();
     const tbody = document.getElementById('archivesList');
-    
+
+    if (!archives.length) {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="7" style="text-align:center; color:#666;">Nenhum registro encontrado</td>
+        </tr>
+      `;
+      return;
+    }
+
     tbody.innerHTML = archives.map(archive => `
       <tr>
-        <td>${archive.month_year.replace('-', '/')}</td>
-        <td>${archive.branch_name}</td>
-        <td>${formatCurrency(archive.total_dizimos)}</td>
-        <td>${formatCurrency(archive.total_ofertas)}</td>
-        <td>${formatCurrency(archive.final_balance)}</td>
-        <td>${formatDateTime(archive.archived_at)}</td>
-        <td>
+        <td data-label="Período">${archive.month_year.replace('-', '/')}</td>
+        <td data-label="Congregação">${archive.branch_name}</td>
+        <td data-label="Dízimos">${formatCurrency(archive.total_dizimos)}</td>
+        <td data-label="Ofertas">${formatCurrency(archive.total_ofertas)}</td>
+        <td data-label="Saldo Final">${formatCurrency(archive.final_balance)}</td>
+        <td data-label="Data">${formatDateTime(archive.archived_at)}</td>
+        <td data-label="Ações" class="actions">
           <button class="details-btn" onclick="showArchiveDetails(${archive.id})">
             <i class="fas fa-search"></i> Detalhes
           </button>
@@ -808,11 +817,13 @@ async function loadArchives() {
     `).join('');
 
   } catch (error) {
+    console.error(error);
     showAlert('error', `Erro: ${error.message}`);
   } finally {
     hideLoading();
   }
 }
+
 
 async function downloadBranchesReportPDF() {
   try {

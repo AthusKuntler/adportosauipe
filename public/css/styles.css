@@ -1244,3 +1244,172 @@ button i {
   color: #888;
   margin-left: 4px;
 }
+/* ============================
+   🌐 OTIMIZAÇÕES PARA MOBILE
+============================ */
+@media (max-width: 768px) {
+  header {
+    flex-direction: column;
+    text-align: center;
+    gap: 1rem;
+  }
+
+  .admin-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .admin-actions button {
+    width: 100%;
+    font-size: 1rem;
+  }
+
+  .card {
+    padding: 1rem;
+  }
+
+  .branches-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .branch-card {
+    width: 100%;
+    text-align: center;
+  }
+
+  .branch-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .branch-actions {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .action-group {
+    flex-direction: column;
+    align-items: flex-start;
+    width: 100%;
+    gap: 8px;
+  }
+
+  .table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  table {
+    font-size: 13px;
+    min-width: 600px;
+  }
+
+  .archive-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .filter-controls {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .filter-controls input,
+  .filter-controls button {
+    width: 100%;
+  }
+
+  .pagination-controls {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .pagination-btn {
+    width: 100%;
+  }
+
+  /* Ajusta o modal no celular */
+  .modal-content {
+    width: 95%;
+    padding: 1rem;
+  }
+
+  .modal-content h2 {
+    font-size: 1.2rem;
+  }
+
+  .form-group label {
+    font-size: 0.9rem;
+  }
+}
+
+@media (max-width: 480px) {
+  h1, h2, h3 {
+    font-size: 1rem;
+  }
+
+  .primary-btn,
+  .logout-btn {
+    font-size: 0.9rem;
+  }
+
+  .archive-btn {
+    width: 100%;
+  }
+
+  .balance-amount {
+    font-size: 1.4rem;
+  }
+}
+/* ====== Ajuste visual da tabela de Arquivamento no mobile ====== */
+@media (max-width: 768px) {
+  .archive-table {
+    display: block;
+    border-collapse: separate;
+    border-spacing: 0 10px;
+  }
+
+  .archive-table thead {
+    display: none; /* esconde o cabeçalho fixo */
+  }
+
+  .archive-table tr {
+    display: block;
+    background: #fff;
+    padding: 10px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+  }
+
+  .archive-table td {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 10px;
+    border: none;
+    border-bottom: 1px solid #eee;
+    font-size: 14px;
+  }
+
+  .archive-table td:last-child {
+    border-bottom: none;
+  }
+
+  .archive-table td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: #444;
+  }
+    .archive-table .actions {
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .archive-table .actions button {
+    width: 100%;
+    font-size: 13px;
+  }
+}

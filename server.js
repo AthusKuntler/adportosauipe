@@ -474,13 +474,24 @@ app.get('/api/groups/:groupId/transactions', authenticateToken, async (req, res)
     const { groupId } = req.params;
     const { name } = req.query;
 
-    const [transactions] = await db.query(
-      `SELECT * FROM transactions 
-       WHERE group_id = ? 
-       AND person_name LIKE ? 
-       ORDER BY transaction_date DESC`,
-      [groupId, `%${name}%`]
-    );
+    const [transactions] = await db.query(`
+      SELECT 
+        t.id,
+        t.amount,
+        t.transaction_date,
+        t.description,
+        t.person_name,
+        gt.name AS type,
+        g.name AS group_name,
+        b.name AS branch_name
+      FROM transactions t
+      JOIN group_types gt ON t.group_type_id = gt.id
+      JOIN congregation_groups g ON t.group_id = g.id
+      JOIN branches b ON t.branch_id = b.id
+      WHERE t.group_id = ?
+        AND t.person_name LIKE ?
+      ORDER BY t.transaction_date DESC
+    `, [groupId, `%${name}%`]);
 
     res.json(transactions);
   } catch (error) {
@@ -488,6 +499,7 @@ app.get('/api/groups/:groupId/transactions', authenticateToken, async (req, res)
     res.status(500).json({ error: 'Erro na busca de transações' });
   }
 });
+
 app.post('/api/admin/monthly-archive', authenticateToken, async (req, res) => {
   if (!req.user.isAdmin) {
     return res.status(403).json({ error: 'Acesso não autorizado' });
@@ -1035,21 +1047,62 @@ app.get('/api/admin/archives', authenticateToken, async (req, res) => {
   }
 
   try {
+    const { month } = req.query;
+
+    // Lista de formatos possíveis para comparação no banco
+    const monthCandidates = [];
+
+    if (month) {
+      // Caso o filtro venha no formato YYYY-MM (input type="month")
+      const [year, mon] = month.split('-');
+      monthCandidates.push(`${year}-${mon}`);   // formato YYYY-MM
+      monthCandidates.push(`${mon}/${year}`);   // formato MM/YYYY
+    } else {
+      // 🔹 Se não tiver filtro, pega o mês anterior ao atual
+      const now = new Date();
+      const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const prevYear = prev.getFullYear();
+      const prevMonth = String(prev.getMonth() + 1).padStart(2, '0');
+
+      monthCandidates.push(`${prevYear}-${prevMonth}`); // YYYY-MM
+      monthCandidates.push(`${prevMonth}/${prevYear}`); // MM/YYYY
+    }
+
+    // Gera placeholders seguros (para evitar SQL injection)
+    const placeholders = monthCandidates.map(() => '?').join(', ');
+
     const [archives] = await db.query(`
       SELECT 
-        m.id, m.month_year, 
-        b.name as branch_name,
-        m.total_dizimos, m.total_ofertas,
-        m.final_balance, m.archived_at
+        m.id, 
+        m.month_year, 
+        b.name AS branch_name,
+        m.total_dizimos, 
+        m.total_ofertas,
+        m.final_balance, 
+        m.archived_at
       FROM monthly_archives m
       JOIN branches b ON m.branch_id = b.id
-      ORDER BY m.month_year DESC, b.name
-    `);
-    
-    res.json(archives);
+      WHERE m.month_year IN (${placeholders})
+      ORDER BY m.month_year DESC, b.name ASC
+    `, monthCandidates);
+
+    // Formata antes de enviar para o frontend
+    const formatted = archives.map(a => {
+      let monthYear = a.month_year;
+      if (/^\d{4}-\d{2}$/.test(monthYear)) {
+        monthYear = monthYear.replace('-', '/');
+      }
+      return {
+        ...a,
+        month_year: monthYear,
+        archived_at: new Date(a.archived_at).toLocaleString('pt-BR')
+      };
+    });
+
+    res.json(formatted);
   } catch (error) {
-    console.error('Erro ao buscar arquivos:', error);
-    res.status(500).json({ error: 'Erro ao buscar arquivos' });
+    console.error('Erro ao buscar arquivos (admin):', error);
+    res.status(500).json({ error: 'Erro ao buscar arquivamentos' });
   }
 });
 
